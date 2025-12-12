@@ -7,3 +7,4 @@ requests
 cloudinary
 authlib
 python-dotenv
+httpx
