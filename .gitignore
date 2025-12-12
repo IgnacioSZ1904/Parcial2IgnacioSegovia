@@ -2,6 +2,7 @@
 emtorno/
 entorno/
 .entorno
+.env
 
 # Byte-compiled / optimizados / DLLs
 __pycache__/
