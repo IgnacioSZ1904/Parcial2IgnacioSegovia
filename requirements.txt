@@ -8,3 +8,4 @@ authlib
 itsdangerous
 jinja2
 python-multipart
+requests
