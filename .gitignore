@@ -1,7 +1,7 @@
 # Entornos virtuales
-venv/
-env/
-.env
+emtorno/
+entorno/
+.entorno
 
 # Byte-compiled / optimizados / DLLs
 __pycache__/
