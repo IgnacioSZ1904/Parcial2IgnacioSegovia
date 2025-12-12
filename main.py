@@ -1,101 +1,77 @@
 from fastapi import FastAPI, Request, Form, UploadFile, Depends, File
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from auth.oauth import login_google, auth_callback, get_current_user
 from database.database import db
 from services.mapa import geocode
 from services.imagen import upload_image
-from services.visita import save_visit
 from datetime import datetime
+from typing import List
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 import os
+import time
 from dotenv import load_dotenv
 
 load_dotenv()
 
 app = FastAPI()
 
-# Configuración de sesión y estáticos
-# NOTA: En producción, usa una SECRET_KEY segura y fija en el .env
-app.add_middleware(SessionMiddleware, secret_key=os.getenv("SECRET_KEY", "super_secret_key_default"))
+# Configuración
+app.add_middleware(SessionMiddleware, secret_key=os.getenv("SECRET_KEY", "examen_secret"))
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
-
-@app.get("/", response_class=HTMLResponse)
-async def root(request: Request, user=Depends(get_current_user)):
-    if not user:
-        return RedirectResponse("/auth/login")
-    return RedirectResponse(f"/map/{user['email']}")
-
-
+# --- AUTH ---
 @app.get("/auth/login")
 async def login(request: Request):
     return await login_google(request)
-
 
 @app.get("/auth/callback")
 async def callback(request: Request):
     return await auth_callback(request)
 
-
 @app.get("/auth/logout")
 async def logout(request: Request):
-    """Cierra la sesión del usuario eliminando la cookie de sesión."""
     request.session.clear()
     return RedirectResponse("/", status_code=303)
 
+# --- RUTAS PRINCIPALES ---
 
-@app.get("/map/{email}", response_class=HTMLResponse)
-async def load_map(request: Request, email: str, user=Depends(get_current_user)):
+@app.get("/", response_class=HTMLResponse)
+async def root(request: Request, user=Depends(get_current_user)):
+    # Requisito: No se puede usar sin identificarse
     if not user:
         return RedirectResponse("/auth/login")
 
-    # 1. Obtener usuario objetivo
-    target_user = db.users.find_one({"email": email})
-
-    # Si no existe, estructura base
-    if not target_user:
-        target_user = {"email": email, "markers": [], "visits": []}
-        if email == user["email"]:
-            db.users.insert_one(target_user)
-
-    # 2. Verificar propiedad
-    is_owner = (user["email"] == email)
-
-    # 3. Registrar visita si no es el dueño
-    if not is_owner:
-        save_visit(email, user["email"], user["token"])
-        target_user = db.users.find_one({"email": email}) or target_user
-
-    # 4. Sanitización de fechas (SOLUCIÓN ERROR DATETIME)
-    if "markers" in target_user:
-        for marker in target_user["markers"]:
-            if "created_at" in marker and isinstance(marker["created_at"], datetime):
-                marker["created_at"] = marker["created_at"].isoformat()
-
-    # 5. Ordenar visitas (Requisito: recientes primero)
-    visits = target_user.get("visits", [])
-    visits_sorted = sorted(visits, key=lambda v: v.get('timestamp', datetime.min), reverse=True)
+    # Recuperar todas las reseñas (globales)
+    reviews_cursor = db.reviews.find({})
+    reviews = []
+    
+    # Sanitizar datos para Jinja/JSON
+    for r in reviews_cursor:
+        # Convertir ObjectId a str si fuera necesario, y fechas a ISO
+        if "created_at" in r and isinstance(r["created_at"], datetime):
+            r["created_at"] = r["created_at"].isoformat()
+        reviews.append(r)
 
     return templates.TemplateResponse(
-        "map.html",
+        "reviews.html",
         {
             "request": request,
-            "user": target_user,
-            "current_user_email": user["email"],
-            "is_owner": is_owner,
-            "visits": visits_sorted
+            "user": user,
+            "reviews": reviews
         }
     )
 
-
-@app.post("/markers/add")
-async def add_marker(
-    request: Request,  # <--- CORRECCIÓN AQUÍ: Se ha añadido este parámetro
-    city: str = Form(...),
-    image: UploadFile = File(...),
+@app.post("/reviews/add")
+async def add_review(
+    request: Request,
+    name: str = Form(...),
+    address: str = Form(...),
+    rating: int = Form(...),
+    # Requisito: Múltiples imágenes
+    images: List[UploadFile] = File(default=[]), 
     user=Depends(get_current_user)
 ):
     if not user:
@@ -103,64 +79,52 @@ async def add_marker(
 
     # 1. Geocoding
     try:
-        lat, lon = geocode(city)
+        lat, lon = geocode(address)
     except Exception as e:
-        # Recuperamos datos para repintar la página con el error
-        target_user = db.users.find_one({"email": user["email"]})
-        
-        # Sanitizar fechas para evitar crash al mostrar el error
-        if target_user and "markers" in target_user:
-             for m in target_user["markers"]:
-                if isinstance(m.get("created_at"), datetime):
-                    m["created_at"] = m.get("created_at").isoformat()
-        
-        return templates.TemplateResponse(
-            "map.html",
-            {
-                "request": request, # Ahora 'request' sí existe en el ámbito de la función
-                "user": target_user,
-                "current_user_email": user["email"],
-                "is_owner": True,
-                "visits": [], 
-                "error": f"Error al geolocalizar: {str(e)}"
-            }
-        )
+        # Manejo básico de error
+        return HTMLResponse(f"<h3>Error: No se encontró la dirección '{address}'</h3><a href='/'>Volver</a>")
 
-    # 2. Subida de Imagen
-    try:
-        image_url = upload_image(image)
-    except Exception as e:
-         # Manejo de error de imagen
-         target_user = db.users.find_one({"email": user["email"]})
-         if target_user and "markers" in target_user:
-             for m in target_user["markers"]:
-                if isinstance(m.get("created_at"), datetime):
-                    m["created_at"] = m.get("created_at").isoformat()
+    # 2. Imágenes (Iterar y subir)
+    image_urls = []
+    for img in images:
+        if img.filename: # Si el usuario seleccionó archivo
+            try:
+                url = upload_image(img)
+                image_urls.append(url)
+            except Exception as e:
+                print(f"Fallo subida imagen: {e}")
 
-         return templates.TemplateResponse(
-            "map.html",
-            {
-                "request": request,
-                "user": target_user,
-                "current_user_email": user["email"],
-                "is_owner": True,
-                "visits": [],
-                "error": f"Error al subir imagen: {str(e)}"
-            }
-        )
-
-    # 3. Guardar en BD
-    marker = {
-        "city": city,
+    # 3. Timestamps de Token (Requisito)
+    # Simulamos timestamps OAuth estandar (Issued At / Expiration)
+    now = int(time.time())
+    
+    review_doc = {
+        "establishment_name": name,
+        "address": address,
         "lat": lat,
         "lon": lon,
-        "image_url": image_url,
-        "created_at": datetime.utcnow() # Se guardará como objeto Date en Mongo
+        "rating": rating,
+        "images": image_urls,
+        "created_at": datetime.utcnow(),
+        # Datos del autor y auditoría de token
+        "author": {
+            "name": user.get("name"),
+            "email": user.get("email"),
+            "token": user.get("token"), # El token en bruto
+            "token_iat": now,           # Fecha emisión
+            "token_exp": now + 3600     # Fecha caducidad (+1h)
+        }
     }
 
-    db.users.update_one(
-        {"email": user["email"]},
-        {"$push": {"markers": marker}}
-    )
+    db.reviews.insert_one(review_doc)
 
-    return RedirectResponse(f"/map/{user['email']}", status_code=303)
+    return RedirectResponse("/", status_code=303)
+
+# --- API JSON (Para el buscador del mapa) ---
+@app.get("/api/search")
+async def search_address(address: str):
+    try:
+        lat, lon = geocode(address)
+        return JSONResponse({"success": True, "lat": lat, "lon": lon})
+    except:
+        return JSONResponse({"success": False}, status_code=404)

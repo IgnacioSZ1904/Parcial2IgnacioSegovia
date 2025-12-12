@@ -1,26 +1,25 @@
 import requests
 
-def geocode(city: str):
+def geocode(address: str):
+    """Convierte dirección en lat/lon usando Nominatim"""
     url = "https://nominatim.openstreetmap.org/search"
-    
+    # User-Agent es obligatorio para no ser bloqueado por OSM
+    headers = {"User-Agent": "ReViewsStudentApp/1.0"}
     params = {
-        "q": city,
+        "q": address,
         "format": "json",
         "limit": 1
     }
 
-    headers = {
-        "User-Agent": "FastAPI-App"
-    }
-
-    response = requests.get(url, params=params, headers=headers, timeout=10)
-
-    if response.status_code != 200:
-        raise Exception("Error al conectar con el servicio de geocoding")
-
-    data = response.json()
-
-    if not data:
-        raise Exception("Ciudad o país no encontrado")
-
-    return float(data[0]["lat"]), float(data[0]["lon"])
+    try:
+        response = requests.get(url, params=params, headers=headers, timeout=5)
+        response.raise_for_status()
+        data = response.json()
+        
+        if not data:
+            raise Exception("Dirección no encontrada")
+            
+        return float(data[0]["lat"]), float(data[0]["lon"])
+    except Exception as e:
+        print(f"Error Geocoding: {e}")
+        raise e
