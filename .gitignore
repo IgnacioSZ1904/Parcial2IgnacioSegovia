@@ -1,0 +1,14 @@
+# Entornos virtuales
+venv/
+env/
+.env
+
+# Byte-compiled / optimizados / DLLs
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribución / Empaquetado
+dist/
+build/
+*.egg-info/

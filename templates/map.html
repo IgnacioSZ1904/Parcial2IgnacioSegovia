@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MiMapa - {{ user.email }}</title>
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 1000px; margin: 0 auto; padding: 20px; color: #333; }
+        
+        /* Cabecera */
+        header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #eee; padding-bottom: 20px; margin-bottom: 20px; }
+        .user-info { font-size: 1.1em; }
+        .logout-btn { background-color: #ff4d4d; color: white; padding: 8px 15px; text-decoration: none; border-radius: 4px; font-weight: bold; }
+        .back-btn { display: inline-block; margin-top: 5px; color: #007bff; text-decoration: none; }
+        
+        /* Controles y Formularios */
+        .controls-section { background: #f9f9f9; padding: 15px; border-radius: 8px; margin-bottom: 20px; display: flex; gap: 20px; flex-wrap: wrap; justify-content: space-between;}
+        .form-group { display: flex; gap: 10px; align-items: center; }
+        input[type="text"], input[type="email"] { padding: 8px; border: 1px solid #ccc; border-radius: 4px; }
+        button { padding: 8px 15px; background-color: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        button:hover { background-color: #0056b3; }
+        
+        /* Mapa */
+        #map { height: 500px; width: 100%; border-radius: 8px; border: 1px solid #ddd; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        
+        /* Galería */
+        .gallery { margin-top: 20px; display: flex; gap: 15px; overflow-x: auto; padding-bottom: 10px; }
+        .gallery-item { text-align: center; min-width: 120px; }
+        .gallery-item img { height: 100px; border-radius: 4px; box-shadow: 0 2px 4px rgba(0,0,0,0.2); }
+        
+        /* Tabla de Visitas */
+        .visits-section { margin-top: 40px; border-top: 2px solid #eee; padding-top: 20px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 0.9em; }
+        th, td { padding: 10px; text-align: left; border-bottom: 1px solid #eee; }
+        th { background-color: #f8f9fa; color: #555; }
+        .token-cell { font-family: monospace; color: #666; font-size: 0.85em; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        
+        .error-msg { background: #ffebee; color: #c62828; padding: 10px; border-radius: 4px; margin-bottom: 15px; }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="user-info">
+            <h1>Mapa de: {{ user.email }}</h1>
+            {% if not is_owner %}
+                <small>Estás visitando como: <b>{{ current_user_email }}</b></small><br>
+                <a href="/map/{{ current_user_email }}" class="back-btn">← Volver a mi mapa</a>
+            {% endif %}
+        </div>
+        <div>
+            <a href="/auth/logout" class="logout-btn">Cerrar Sesión</a>
+        </div>
+    </header>
+
+    {% if error %}
+        <div class="error-msg">⚠️ {{ error }}</div>
+    {% endif %}
+
+    <div class="controls-section">
+        <div class="visit-form">
+            <h3>Visitar otro usuario</h3>
+            <form id="visitForm" onsubmit="event.preventDefault(); window.location.href='/map/' + document.getElementById('targetEmail').value">
+                <div class="form-group">
+                    <input type="email" id="targetEmail" placeholder="email@usuario.com" required>
+                    <button type="submit">Ir</button>
+                </div>
+            </form>
+        </div>
+
+        {% if is_owner %}
+        <div class="add-marker-form">
+            <h3>Añadir Marcador</h3>
+            <form action="/markers/add" method="post" enctype="multipart/form-data">
+                <div class="form-group">
+                    <input type="text" name="city" placeholder="Ciudad o País" required>
+                    <input type="file" name="image" required accept="image/*">
+                    <button type="submit">Añadir</button>
+                </div>
+            </form>
+        </div>
+        {% endif %}
+    </div>
+
+    <div id="map"></div>
+
+    {% if user.markers %}
+    <h3>Galería de Viajes</h3>
+    <div class="gallery">
+        {% for m in user.markers %}
+        <div class="gallery-item">
+            <a href="{{ m.image_url }}" target="_blank">
+                <img src="{{ m.image_url }}" alt="{{ m.city }}">
+            </a>
+            <div><small>{{ m.city }}</small></div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <div class="visits-section">
+        <h3>Historial de Visitas Recibidas</h3>
+        {% if visits %}
+            <table>
+                <thead>
+                    <tr>
+                        <th>Fecha y Hora</th>
+                        <th>Visitante</th>
+                        <th>Token OAuth</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for v in visits %}
+                    <tr>
+                        <td>{{ v.timestamp }}</td>
+                        <td>{{ v.visitor_email }}</td>
+                        <td class="token-cell" title="{{ v.oauth_token }}">{{ v.oauth_token }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% else %}
+            <p style="color: #666; font-style: italic;">No hay visitas registradas aún en este mapa.</p>
+        {% endif %}
+    </div>
+
+    <script>
+        // Inicializar mapa
+        const map = L.map('map').setView([20, 0], 2);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(map);
+
+        // Parsear datos pasados desde Python (Ahora seguro gracias a la conversión de fechas en backend)
+        const markersData = JSON.parse('{{ user.markers | tojson | safe }}');
+
+        markersData.forEach(m => {
+            const popupContent = `
+                <div style="text-align: center;">
+                    <b>${m.city}</b><br>
+                    <img src="${m.image_url}" style="width:100px; height:auto; margin-top:5px; border-radius:4px;">
+                </div>
+            `;
+            
+            L.marker([m.lat, m.lon])
+                .addTo(map)
+                .bindPopup(popupContent);
+        });
+    </script>
+</body>
+</html>
