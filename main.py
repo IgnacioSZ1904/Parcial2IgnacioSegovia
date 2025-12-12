@@ -44,16 +44,21 @@ async def root(request: Request, user=Depends(get_current_user)):
     if not user:
         return RedirectResponse("/auth/login")
 
-    # Recuperar todas las reseñas (globales)
+    # Recuperar todas las reseñas
     reviews_cursor = db.reviews.find({})
     reviews = []
     
-    # Sanitizar datos para Jinja/JSON
+    # --- BUCLE DE SANITIZACIÓN ---
     for r in reviews_cursor:
-        # Convertir ObjectId a str si fuera necesario, y fechas a ISO
+        if "_id" in r:
+            r["_id"] = str(r["_id"])
+            
+
         if "created_at" in r and isinstance(r["created_at"], datetime):
             r["created_at"] = r["created_at"].isoformat()
+            
         reviews.append(r)
+    # -----------------------------
 
     return templates.TemplateResponse(
         "reviews.html",
