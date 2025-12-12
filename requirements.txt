@@ -1,10 +1,10 @@
 fastapi
 uvicorn
-jinja2
-python-multipart
+pydantic
 pymongo
-requests
-cloudinary
-authlib
 python-dotenv
 httpx
+authlib
+itsdangerous
+jinja2
+python-multipart
