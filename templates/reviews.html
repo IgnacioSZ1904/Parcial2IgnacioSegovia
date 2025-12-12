@@ -29,7 +29,7 @@
         .review-item:hover { transform: translateX(5px); border-left-color: #00AA6C; }
         
         h2, h3 { margin-top: 0; color: #333; }
-        input, button, select { width: 100%; padding: 10px; margin-bottom: 10px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; }
+        input, button, select, textarea { width: 100%; padding: 10px; margin-bottom: 10px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; }
         button { background: #00AA6C; color: white; border: none; font-weight: bold; cursor: pointer; }
         button:hover { background: #008855; }
         button.secondary { background: #546e7a; }
@@ -62,7 +62,10 @@
             <button class="close-btn" onclick="document.getElementById('detailsModal').style.display='none'">&times;</button>
             
             <h2 id="mTitle">Nombre Establecimiento</h2>
-            <p id="mAddress" style="color:#666;"></p>
+            <p id="mAddress" style="color:#666; margin-bottom: 5px;"></p>
+            
+            <p id="mComment" style="font-style: italic; background: #f9f9f9; padding: 10px; border-left: 4px solid #00AA6C; margin: 10px 0;"></p>
+            
             <div style="margin-bottom: 20px;">
                 Valoración: <span id="mRating" style="font-weight:bold; color:#00AA6C; font-size:1.2em;"></span> / 5
             </div>
@@ -95,6 +98,9 @@
                     <input type="text" name="name" placeholder="Nombre Establecimiento" required>
                     <input type="text" name="address" placeholder="Dirección Postal" required>
                     
+                    <label>Tu opinión:</label>
+                    <textarea name="comment" placeholder="¿Qué te ha parecido? Escribe aquí..." rows="3" style="resize: vertical;"></textarea>
+
                     <label>Valoración:</label>
                     <input type="number" name="rating" min="0" max="5" value="5" required>
                     
@@ -111,6 +117,9 @@
                 <span class="rating-badge">{{ r.rating }}</span>
                 <div style="font-weight:bold; font-size:1.1em;">{{ r.establishment_name }}</div>
                 <div style="color:#666; font-size:0.9em;">{{ r.address }}</div>
+                <div style="margin-top:5px; font-size:0.8em; color:#888; font-family:monospace;">
+                    📍 {{ "%.4f"|format(r.lat) }}, {{ "%.4f"|format(r.lon) }}
+                </div>
             </div>
             {% endfor %}
         </div>
@@ -136,14 +145,14 @@
             if(r.lat && r.lon){
                 var marker = L.marker([r.lat, r.lon]).addTo(map);
                 
-                // Popup simple
-                marker.bindPopup(`<b>${r.establishment_name}</b><br>⭐ ${r.rating}/5<br><button onclick='openModalById(${JSON.stringify(r)})' style='margin-top:5px; padding:3px;'>Ver Detalles</button>`);
-                
-                // Click en marcador abre modal también
-                marker.on('click', () => {
-                    // Opcional: Centrar mapa al clicar
-                    // map.setView([r.lat, r.lon], 15);
-                });
+                // Popup simple con botón para abrir detalles
+                marker.bindPopup(`
+                    <div style="text-align:center">
+                        <b>${r.establishment_name}</b><br>
+                        ⭐ ${r.rating}/5<br>
+                        <button onclick='openModalById(${JSON.stringify(r)})' style='margin-top:5px; padding:3px; font-size:0.8em;'>Ver Detalles</button>
+                    </div>
+                `);
             }
         });
 
@@ -179,6 +188,9 @@
             document.getElementById('mTitle').innerText = data.establishment_name;
             document.getElementById('mAddress').innerText = data.address;
             document.getElementById('mRating').innerText = data.rating;
+            
+            // Rellenar comentario
+            document.getElementById('mComment').innerText = data.comment || "Sin comentarios.";
 
             // Imágenes
             let gallery = document.getElementById('mImages');

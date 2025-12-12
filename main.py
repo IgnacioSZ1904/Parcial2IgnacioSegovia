@@ -44,21 +44,21 @@ async def root(request: Request, user=Depends(get_current_user)):
     if not user:
         return RedirectResponse("/auth/login")
 
-    # Recuperar todas las reseñas
+    # Recuperar todas las reseñas (globales)
     reviews_cursor = db.reviews.find({})
     reviews = []
     
-    # --- BUCLE DE SANITIZACIÓN ---
+    # Sanitizar datos para Jinja/JSON (Evita el error ObjectId y datetime)
     for r in reviews_cursor:
+        # Convertir ObjectId a string
         if "_id" in r:
             r["_id"] = str(r["_id"])
             
-
+        # Convertir fechas a ISO string
         if "created_at" in r and isinstance(r["created_at"], datetime):
             r["created_at"] = r["created_at"].isoformat()
             
         reviews.append(r)
-    # -----------------------------
 
     return templates.TemplateResponse(
         "reviews.html",
@@ -75,6 +75,7 @@ async def add_review(
     name: str = Form(...),
     address: str = Form(...),
     rating: int = Form(...),
+    comment: str = Form(""), # Nuevo campo de comentario
     # Requisito: Múltiples imágenes
     images: List[UploadFile] = File(default=[]), 
     user=Depends(get_current_user)
@@ -100,7 +101,6 @@ async def add_review(
                 print(f"Fallo subida imagen: {e}")
 
     # 3. Timestamps de Token (Requisito)
-    # Simulamos timestamps OAuth estandar (Issued At / Expiration)
     now = int(time.time())
     
     review_doc = {
@@ -109,6 +109,7 @@ async def add_review(
         "lat": lat,
         "lon": lon,
         "rating": rating,
+        "comment": comment, # Guardamos el comentario
         "images": image_urls,
         "created_at": datetime.utcnow(),
         # Datos del autor y auditoría de token
